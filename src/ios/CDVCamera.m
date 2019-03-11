@@ -29,6 +29,7 @@
 #import <ImageIO/CGImageDestination.h>
 #import <MobileCoreServices/UTCoreTypes.h>
 #import <objc/message.h>
+#import <Photos/Photos.h>
 
 #ifndef __CORDOVA_4_0_0
     #import <Cordova/NSData+Base64.h>
@@ -279,7 +280,7 @@ static NSString* toBase64(NSData* data) {
 - (void)navigationController:(UINavigationController *)navigationController willShowViewController:(UIViewController *)viewController animated:(BOOL)animated
 {
     if([navigationController isKindOfClass:[UIImagePickerController class]]){
-        
+
         // If popoverWidth and popoverHeight are specified and are greater than 0, then set popover size, else use apple's default popoverSize
         NSDictionary* options = self.pickerController.pictureOptions.popoverOptions;
         if(options) {
@@ -290,8 +291,8 @@ static NSString* toBase64(NSData* data) {
                 [viewController setPreferredContentSize:CGSizeMake(popoverWidth,popoverHeight)];
             }
         }
-        
-        
+
+
         UIImagePickerController* cameraPicker = (UIImagePickerController*)navigationController;
 
         if(![cameraPicker.mediaTypes containsObject:(NSString*)kUTTypeImage]){
@@ -367,6 +368,26 @@ static NSString* toBase64(NSData* data) {
                 data = UIImageJPEGRepresentation(image, [options.quality floatValue] / 100.0f);
             }
 
+            if(options.sourceType != UIImagePickerControllerSourceTypeCamera) {
+//                NSURL *referenceURL = [info objectForKey:UIImagePickerControllerReferenceURL];// fetch url of selected image
+//                [self metadata:referenceURL];
+
+                NSURL *referenceURL = [info objectForKey:UIImagePickerControllerImageURL];
+                NSData *orgData = [NSData dataWithContentsOfURL:referenceURL];
+                self.metadata = [[self metadataFromImageData:orgData] mutableCopy];
+                if (self.metadata) {
+                    CGImageSourceRef sourceImage = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+                    CFStringRef sourceType = CGImageSourceGetType(sourceImage);
+
+                    CGImageDestinationRef destinationImage = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)data, sourceType, 1, NULL);
+                    CGImageDestinationAddImageFromSource(destinationImage, sourceImage, 0, (__bridge CFDictionaryRef)self.metadata);
+                    CGImageDestinationFinalize(destinationImage);
+
+                    CFRelease(sourceImage);
+                    CFRelease(destinationImage);
+                }
+            }
+
             if (options.usesGeolocation) {
                 NSDictionary* controllerMetadata = [info objectForKey:@"UIImagePickerControllerMediaMetadata"];
                 if (controllerMetadata) {
@@ -391,6 +412,50 @@ static NSString* toBase64(NSData* data) {
     };
 
     return data;
+}
+
+-(void)metadata:(NSURL *)url
+{
+
+    NSDictionary *dict;
+    PHAsset *asset=[PHAsset fetchAssetsWithALAssetURLs:@[url] options:nil].firstObject;
+    if (asset) {
+        // get photo info from this asset
+        PHImageRequestOptions * imageRequestOptions = [[PHImageRequestOptions alloc] init];
+        imageRequestOptions.synchronous = YES;
+        [[PHImageManager defaultManager]
+         requestImageDataForAsset:asset
+         options:imageRequestOptions
+         resultHandler:^(NSData *imageData, NSString *dataUTI,
+                         UIImageOrientation orientation,
+                         NSDictionary *info)
+         {
+             NSDictionary *dict = [self metadataFromImageData:imageData];// as this imageData is in NSData format so we need a method to convert this NSData into NSDictionary to display metadata
+             self.metadata = [dict mutableCopy];
+
+         }];
+    }
+
+}
+
+-(NSDictionary*)metadataFromImageData:(NSData*)imageData{
+    CGImageSourceRef imageSource = CGImageSourceCreateWithData((__bridge CFDataRef)(imageData), NULL);
+    if (imageSource) {
+        NSDictionary *options = @{(NSString *)kCGImageSourceShouldCache : [NSNumber numberWithBool:NO]};
+        CFDictionaryRef imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, (__bridge CFDictionaryRef)options);
+        if (imageProperties) {
+            NSDictionary *metadata = (__bridge NSDictionary *)imageProperties;
+            CFRelease(imageProperties);
+            CFRelease(imageSource);
+            NSLog(@"Metadata of selected image%@",metadata);// It will display the metadata of image after converting NSData into NSDictionary
+            return metadata;
+
+        }
+        CFRelease(imageSource);
+    }
+
+    NSLog(@"Can't read metadata");
+    return nil;
 }
 
 - (NSString*)tempFilePath:(NSString*)extension
