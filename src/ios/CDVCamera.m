@@ -422,24 +422,29 @@ static NSString* toBase64(NSData* data) {
             data = UIImageJPEGRepresentation(image, [options.quality floatValue] / 100.0f);
         }
 
+        NSMutableData *dest_data = [NSMutableData data];
+        //NSLog(@"processImage data : %lu", [data length]);
         if(options.sourceType != UIImagePickerControllerSourceTypeCamera) {
             NSURL *referenceURL = [info objectForKey:UIImagePickerControllerReferenceURL];// fetch url of selected image
 
             self.metadata = nil;
+            //NSLog(@"processImage referenceURL : %@", referenceURL);
             [self metadata:referenceURL completionBlock:^(NSMutableDictionary *metadata, NSString *dataUtiImgType) {
                 self.metadata = metadata;
                 if (self.metadata) {
+                    //NSLog(@"processImage after metadata Callback : %@", self.metadata);
                     CGImageSourceRef sourceImage = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
                     CFStringRef sourceType = CGImageSourceGetType(sourceImage);
 
-                    CGImageDestinationRef destinationImage = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)data, sourceType, 1, NULL);
+                    CGImageDestinationRef destinationImage = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)dest_data, sourceType, 1, NULL);
                     CGImageDestinationAddImageFromSource(destinationImage, sourceImage, 0, (__bridge CFDictionaryRef)self.metadata);
                     CGImageDestinationFinalize(destinationImage);
 
                     CFRelease(sourceImage);
                     CFRelease(destinationImage);
                 }
-                completionBlock(data);
+                //NSLog(@"processImage after metadata Callback : %lu", [dest_data length]);
+                completionBlock(dest_data);
             }];
         }
 
@@ -464,6 +469,7 @@ static NSString* toBase64(NSData* data) {
     }
 }
 -(void)metadata:(NSURL *)url completionBlock:(void (^)(NSMutableDictionary *metadata, NSString *dataUtiImageType))completionBlock {
+    //NSLog(@"Metadata url %@",url);
     NSDictionary *dict;
     PHAsset *asset=[PHAsset fetchAssetsWithALAssetURLs:@[url] options:nil].firstObject;
     if (asset) {
@@ -496,7 +502,7 @@ static NSString* toBase64(NSData* data) {
             NSDictionary *metadata = (__bridge NSDictionary *)imageProperties;
             CFRelease(imageProperties);
             CFRelease(imageSource);
-            NSLog(@"Metadata of selected image%@",metadata);// It will display the metadata of image after converting NSData into NSDictionary
+            //NSLog(@"Metadata of selected image%@",metadata);// It will display the metadata of image after converting NSData into NSDictionary
             return metadata;
 
         }
@@ -512,7 +518,7 @@ static NSString* toBase64(NSData* data) {
     NSString* docsPath = [NSTemporaryDirectory()stringByStandardizingPath];
     NSFileManager* fileMgr = [[NSFileManager alloc] init]; // recommended by Apple (vs [NSFileManager defaultManager]) to be threadsafe
     NSString* filePath;
-    
+
     // unique file name
     NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
     NSNumber *timeStampObj = [NSNumber numberWithDouble: timeStamp];
@@ -590,7 +596,6 @@ static NSString* toBase64(NSData* data) {
             image = [self retrieveImage:info options:options];
             [self processImage:image info:info options:options completionBlock:^(NSData *data) {
                 if (data) {
-
                     NSString* extension = options.encodingType == EncodingTypePNG? @"png" : @"jpg";
                     NSString* filePath = [self tempFilePath:extension];
                     NSError* err = nil;
