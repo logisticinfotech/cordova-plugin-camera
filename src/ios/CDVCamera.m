@@ -519,11 +519,10 @@ static NSString* toBase64(NSData* data) {
     NSFileManager* fileMgr = [[NSFileManager alloc] init]; // recommended by Apple (vs [NSFileManager defaultManager]) to be threadsafe
     NSString* filePath;
 
-    // unique file name
-    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
-    NSNumber *timeStampObj = [NSNumber numberWithDouble: timeStamp];
+    // generate unique file name
+    int i = 1;
     do {
-        filePath = [NSString stringWithFormat:@"%@/%@%ld.%@", docsPath, CDV_PHOTO_PREFIX, [timeStampObj longValue], extension];
+        filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, extension];
     } while ([fileMgr fileExistsAtPath:filePath]);
 
     return filePath;
@@ -795,16 +794,19 @@ static NSString* toBase64(NSData* data) {
     CDVPictureOptions* options = self.pickerController.pictureOptions;
     CDVPluginResult* result = nil;
 
+    NSMutableData *dest_data = [NSMutableData data];
     if (self.metadata) {
         CGImageSourceRef sourceImage = CGImageSourceCreateWithData((__bridge CFDataRef)self.data, NULL);
         CFStringRef sourceType = CGImageSourceGetType(sourceImage);
 
-        CGImageDestinationRef destinationImage = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)self.data, sourceType, 1, NULL);
+        CGImageDestinationRef destinationImage = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)dest_data, sourceType, 1, NULL);
         CGImageDestinationAddImageFromSource(destinationImage, sourceImage, 0, (__bridge CFDictionaryRef)self.metadata);
         CGImageDestinationFinalize(destinationImage);
 
         CFRelease(sourceImage);
         CFRelease(destinationImage);
+    } else {
+        dest_data = [self.data mutableCopy];
     }
 
     switch (options.destinationType) {
@@ -815,7 +817,7 @@ static NSString* toBase64(NSData* data) {
             NSString* filePath = [self tempFilePath:extension];
 
             // save file
-            if (![self.data writeToFile:filePath options:NSAtomicWrite error:&err]) {
+            if (![dest_data writeToFile:filePath options:NSAtomicWrite error:&err]) {
                 result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[err localizedDescription]];
             }
             else {
@@ -825,7 +827,7 @@ static NSString* toBase64(NSData* data) {
             break;
         case DestinationTypeDataUrl:
         {
-            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:toBase64(self.data)];
+            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:toBase64(dest_data)];
         }
             break;
         case DestinationTypeNativeUri:
@@ -841,7 +843,7 @@ static NSString* toBase64(NSData* data) {
     self.pickerController = nil;
     self.data = nil;
     self.metadata = nil;
-
+    dest_data = nil;
     if (options.saveToPhotoAlbum) {
         ALAssetsLibrary *library = [ALAssetsLibrary new];
         [library writeImageDataToSavedPhotosAlbum:self.data metadata:self.metadata completionBlock:nil];
