@@ -195,6 +195,7 @@ static NSString* toBase64(NSData* data) {
         cameraPicker.callbackId = callbackId;
         // we need to capture this state for memory warnings that dealloc this object
         cameraPicker.webView = self.webView;
+        __weak CDVCamera* weakSelf = self;
 
         // If a popover is already open, close it; we only want one at a time.
         if (([[self pickerController] pickerPopoverController] != nil) && [[[self pickerController] pickerPopoverController] isPopoverVisible]) {
@@ -203,19 +204,77 @@ static NSString* toBase64(NSData* data) {
             [[self pickerController] setPickerPopoverController:nil];
         }
 
-        if ([self popoverSupported] && (pictureOptions.sourceType != UIImagePickerControllerSourceTypeCamera)) {
-            if (cameraPicker.pickerPopoverController == nil) {
-                cameraPicker.pickerPopoverController = [[NSClassFromString(@"UIPopoverController") alloc] initWithContentViewController:cameraPicker];
-            }
-            [self displayPopover:pictureOptions.popoverOptions];
-            self.hasPendingOperation = NO;
+        if (pictureOptions.sourceType == UIImagePickerControllerSourceTypeCamera) {
+            [self openCameraWithOptions:pictureOptions];
         } else {
-            cameraPicker.modalPresentationStyle = UIModalPresentationCurrentContext;
-            [self.viewController presentViewController:cameraPicker animated:YES completion:^{
-                self.hasPendingOperation = NO;
-            }];
+            PHAuthorizationStatus status = [PHPhotoLibrary authorizationStatus];
+            if (status == PHAuthorizationStatusNotDetermined) {
+                [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
+                    if (status == PHAuthorizationStatusAuthorized) {
+                        [self openLibraryWithOptions:pictureOptions];
+                    } else {
+                        //alert
+                        [weakSelf sendNoGalleryResult];
+                    }
+                }];
+            } else if (status == PHAuthorizationStatusAuthorized) {
+                [self openLibraryWithOptions:pictureOptions];
+            } else if (status == PHAuthorizationStatusDenied || status == PHAuthorizationStatusRestricted) {
+                //alert
+                NSString *accessDescription = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSPhotoLibraryUsageDescription"];
+                UIAlertController * alertController = [UIAlertController alertControllerWithTitle:accessDescription message:@"To give permissions tap on 'Change Settings' button" preferredStyle:UIAlertControllerStyleAlert];
+
+                UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+
+                    [weakSelf sendNoGalleryResult];
+
+                }];
+
+                [alertController addAction:cancelAction];
+
+                UIAlertAction *settingsAction = [UIAlertAction actionWithTitle:@"Change Settings" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+
+                    [weakSelf sendNoGalleryResult];
+
+                    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString] options:@{} completionHandler:^(BOOL success) {
+
+                    }];
+                }];
+                [alertController addAction:settingsAction];
+
+                [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:alertController animated:YES completion:nil];
+            }
         }
     });
+}
+
+-(void)openLibraryWithOptions:(CDVPictureOptions *) pictureOptions {
+    if ([self popoverSupported]) {
+        if (self.pickerController.pickerPopoverController == nil) {
+            self.pickerController.pickerPopoverController = [[NSClassFromString(@"UIPopoverController") alloc] initWithContentViewController:self.pickerController];
+        }
+        [self displayPopover:pictureOptions.popoverOptions];
+        self.hasPendingOperation = NO;
+    } else {
+        self.pickerController.modalPresentationStyle = UIModalPresentationCurrentContext;
+        [self.viewController presentViewController:self.pickerController animated:YES completion:^{
+            self.hasPendingOperation = NO;
+        }];
+    }
+}
+
+-(void)openCameraWithOptions:(CDVPictureOptions *) pictureOptions {
+    self.pickerController.modalPresentationStyle = UIModalPresentationCurrentContext;
+    [self.viewController presentViewController:self.pickerController animated:YES completion:^{
+        self.hasPendingOperation = NO;
+    }];
+}
+
+- (void)sendNoGalleryResult
+{
+    NSString* callbackId = self.pickerController.callbackId;
+    CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"no gallery access permission"];   // error callback expects string ATM
+    [self.commandDelegate sendPluginResult:result callbackId:callbackId];
 }
 
 - (void)sendNoPermissionResult:(NSString*)callbackId
