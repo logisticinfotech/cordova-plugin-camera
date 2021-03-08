@@ -450,6 +450,8 @@ static NSString* toBase64(NSData* data) {
                 //NSLog(@"processImage referenceURL : %@", referenceURL);
                 [self metadata:referenceURL completionBlock:^(NSMutableDictionary *metadata, NSString *dataUtiImgType) {
                     self.metadata = metadata;
+                    [self.metadata setValue: [NSNumber numberWithInt:1] forKey:@"Orientation"];
+                    
                     if (self.metadata) {
                         //NSLog(@"processImage after metadata Callback : %@", self.metadata);
                         CGImageSourceRef sourceImage = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
